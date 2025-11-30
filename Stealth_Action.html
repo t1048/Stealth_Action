@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stealth Rogue: Blind Spot</title>
+    <link rel="stylesheet" href="./css/Stealth_Action.css">
+</head>
+<body>
+
+    <div id="notification-area"></div>
+
+    <div id="ui-layer">
+        <div class="hud-group">
+            <div class="hud-row">
+                <div class="hud-item">LV: <span id="level-display">1</span></div>
+                <div class="hud-item stun-box">STUN: <span id="stun-display">READY</span></div>
+                <div class="hud-item" id="keycard-display">CARD: NONE</div>
+            </div>
+            <div class="hud-row">
+                <div class="volume-control">
+                    VOL: <input type="range" id="volume-slider" min="0" max="100" value="30">
+                </div>
+            </div>
+        </div>
+        
+        <div class="item-container" id="inventory-display">
+            <div class="hud-item" style="color:#555">NO ITEMS</div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    
+    <div class="status-msg">
+        移動: WASD | アイテム: [Space]使用 [Q]廃棄 [1-4]切替 | 射撃: 左クリック
+    </div>
+    
+<script src="./js/state.js"></script>
+<script src="./js/audio.js"></script>
+<script src="./js/map.js"></script>
+<script src="./js/enemies.js"></script>
+<script src="./js/player.js"></script>
+<script src="./js/rendering.js"></script>
+<script src="./js/game.js"></script>
+</body>
+</html>
