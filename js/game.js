@@ -4,6 +4,7 @@
 function initGame() {
     initAudio();
     level = 1;
+    player = null;
     startGame();
 }
 
@@ -58,6 +59,7 @@ function update() {
         }
 
         updatePlayer();
+        updateUploadTask();
         updateSecurityDoor();
         updateEnemies();
         updateCameras();
@@ -81,6 +83,57 @@ function updateProjectiles() {
             createParticles(p.x, p.y, "#0ff", 3);
             continue;
         }
+    }
+}
+
+function updateUploadTask() {
+    if (!uploadTerminal) return;
+
+    const inArea = player.x > uploadTerminal.x && player.x < uploadTerminal.x + uploadTerminal.w &&
+        player.y > uploadTerminal.y && player.y < uploadTerminal.y + uploadTerminal.h;
+
+    const targetText = uploadStatus.complete ? uploadStatus.completeText : uploadStatus.targetText;
+
+    if (uploadStatus.complete) {
+        uploadStatus.completeTimer++;
+        tickUploadMessage(targetText);
+        return;
+    }
+
+    if (inArea) {
+        uploadStatus.active = true;
+        uploadStatus.progress = Math.min(UPLOAD_REQUIRED_TIME, uploadStatus.progress + 1);
+        tickUploadMessage(targetText);
+
+        if (uploadStatus.progress >= UPLOAD_REQUIRED_TIME && !uploadStatus.complete) {
+            uploadStatus.complete = true;
+            uploadStatus.timer = 0;
+            uploadStatus.currentText = "";
+            tickUploadMessage(uploadStatus.completeText);
+            uploadStatus.completeTimer = 0;
+            uploadStatus.active = false;
+            playSE("goal");
+        }
+    } else {
+        uploadStatus.active = false;
+        if (uploadStatus.progress > 0) {
+            uploadStatus.progress = Math.max(0, uploadStatus.progress - 2);
+        }
+        uploadStatus.timer = 0;
+        uploadStatus.currentText = "";
+        uploadStatus.currentTarget = "";
+    }
+}
+
+function tickUploadMessage(target) {
+    if (uploadStatus.currentTarget !== target) {
+        uploadStatus.currentTarget = target;
+        uploadStatus.currentText = "";
+        uploadStatus.timer = 0;
+    }
+    uploadStatus.timer++;
+    if (uploadStatus.timer % 3 === 0 && uploadStatus.currentText.length < target.length) {
+        uploadStatus.currentText += target[uploadStatus.currentText.length];
     }
 }
 
@@ -227,7 +280,7 @@ volumeSlider.addEventListener('input', e => {
 
 window.addEventListener('wheel', e => {
     if (gameState === "PLAYING" && player.inventory && player.inventory.length > 0) {
-        const uniqueTypes = [...new Set(player.inventory)].sort((a, b) => a - b);
+        const uniqueTypes = [...new Set(player.inventory)].sort(compareItemTypes);
         if (uniqueTypes.length === 0) return;
 
         let currentIndex = uniqueTypes.indexOf(player.selectedItemType);

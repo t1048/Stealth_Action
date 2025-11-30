@@ -90,14 +90,23 @@ function draw() {
         for (let x = Math.max(0, startCol); x < Math.min(COLS, endCol); x++) {
             if (map[y][x] === TILE_WALL) {
                 drawWall(x, y, currentTheme);
-            } else if (map[y][x] === TILE_DOOR && securityDoor && securityDoor.locked) {
-                ctx.fillStyle = "#0a2138";
-                ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                ctx.fillStyle = "#0af";
-                ctx.fillRect(x * TILE_SIZE + 6, y * TILE_SIZE + 4, TILE_SIZE - 12, TILE_SIZE - 8);
-                ctx.strokeStyle = "#fff";
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x * TILE_SIZE + 6, y * TILE_SIZE + 4, TILE_SIZE - 12, TILE_SIZE - 8);
+            } else if (map[y][x] === TILE_DOOR) {
+                const doorInfo = getDoorInfoAt(x, y);
+                if (doorInfo && doorInfo.locked) {
+                    const isUploadDoor = doorInfo.type === "UPLOAD";
+                    ctx.fillStyle = isUploadDoor ? "#1a0428" : "#0a2138";
+                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    ctx.fillStyle = isUploadDoor ? "#c800ff" : "#0af";
+                    ctx.fillRect(x * TILE_SIZE + 6, y * TILE_SIZE + 4, TILE_SIZE - 12, TILE_SIZE - 8);
+                    ctx.strokeStyle = "#fff";
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(x * TILE_SIZE + 6, y * TILE_SIZE + 4, TILE_SIZE - 12, TILE_SIZE - 8);
+                } else {
+                    ctx.fillStyle = currentTheme.floorColor;
+                    ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    ctx.strokeStyle = currentTheme.gridColor;
+                    ctx.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                }
             } else {
                 ctx.fillStyle = currentTheme.floorColor;
                 ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
@@ -109,6 +118,18 @@ function draw() {
 
     ctx.fillStyle = "#00f";
     ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
+
+    if (uploadTerminal) {
+        ctx.fillStyle = uploadStatus.complete ? "rgba(0, 255, 255, 0.2)" : "rgba(80, 0, 180, 0.2)";
+        ctx.fillRect(uploadTerminal.x + 4, uploadTerminal.y + 4, uploadTerminal.w - 8, uploadTerminal.h - 8);
+        ctx.strokeStyle = uploadStatus.complete ? "#0ff" : "#c800ff";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(uploadTerminal.x + 4, uploadTerminal.y + 4, uploadTerminal.w - 8, uploadTerminal.h - 8);
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 12px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText("UPLOAD", uploadTerminal.x + uploadTerminal.w / 2, uploadTerminal.y + uploadTerminal.h / 2 + 4);
+    }
 
     items.forEach(item => {
         if (item.active) {
@@ -313,6 +334,8 @@ function draw() {
     ctx.lineTo(mouse.x, mouse.y + 15);
     ctx.stroke();
 
+    drawUploadUI();
+
     if (navMessage.active) {
         ctx.fillStyle = "rgba(0, 20, 0, 0.85)";
         ctx.fillRect(0, canvas.height - 100, canvas.width, 50);
@@ -332,6 +355,36 @@ function draw() {
     } else if (gameState === "GOAL") {
         drawCenterText("LEVEL CLEARED", "Next Level...", "#0ff");
     }
+}
+
+function drawUploadUI() {
+    if (!uploadTerminal) return;
+    if (!uploadStatus.active && !uploadStatus.complete && uploadStatus.progress <= 0) return;
+    if (uploadStatus.complete && uploadStatus.completeTimer > UPLOAD_COMPLETE_DISPLAY) return;
+
+    const boxY = canvas.height - 160;
+    const barWidth = canvas.width - 80;
+    const pct = Math.min(1, uploadStatus.progress / UPLOAD_REQUIRED_TIME);
+    const displayText = uploadStatus.currentText.length > 0
+        ? uploadStatus.currentText
+        : (uploadStatus.complete ? uploadStatus.completeText : uploadStatus.targetText);
+
+    ctx.fillStyle = "rgba(10, 0, 20, 0.85)";
+    ctx.fillRect(0, boxY, canvas.width, 60);
+
+    ctx.strokeStyle = "#c800ff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(0, boxY, canvas.width, 60);
+
+    ctx.fillStyle = "#c800ff";
+    ctx.font = "bold 18px Courier New";
+    ctx.textAlign = "center";
+    ctx.fillText(displayText, canvas.width / 2, boxY + 22);
+
+    ctx.strokeStyle = "#300046";
+    ctx.strokeRect(40, boxY + 32, barWidth, 12);
+    ctx.fillStyle = uploadStatus.complete ? "#0ff" : "#c800ff";
+    ctx.fillRect(40, boxY + 32, barWidth * pct, 12);
 }
 
 function drawCenterText(main, sub, color) {

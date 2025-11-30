@@ -22,6 +22,20 @@ const ITEM_NAMES = ["NONE", "SPEED BOOST", "WIDE SONAR", "OPTICAL CLOAK", "KEYCA
 const ITEM_DURATIONS = [0, 300, 600, 300, 0];
 
 const SECURITY_LAYOUT_LEVEL = 4;
+const UPLOAD_LAYOUT_LEVEL = 6;
+const UPLOAD_REQUIRED_TIME = FPS * 5;
+const UPLOAD_COMPLETE_DISPLAY = FPS * 5;
+
+function getItemSortPriority(type) {
+    if (type === ITEM_CLOAK) return 0;
+    if (type === ITEM_SPEED) return 1;
+    if (type === ITEM_VISION) return 2;
+    return 99;
+}
+
+function compareItemTypes(a, b) {
+    return getItemSortPriority(a) - getItemSortPriority(b);
+}
 
 const THEMES = [
     { name: "LABORATORY", bgColor: "#e0e4e8", floorColor: "#f0f4f8", wallColor: "#bdc3c7", wallSideColor: "#95a5a6", gridColor: "#dce1e6", wallBorder: "#34495e" },
@@ -60,6 +74,8 @@ let mouse = { x: 0, y: 0 };
 let frameCount = 0;
 let camera = { x: 0, y: 0 };
 let securityDoor = null;
+let uploadDoor = null;
+let uploadTerminal = null;
 
 let levelTime = 0;
 let navActive = false;
@@ -72,6 +88,17 @@ let navMessage = {
 };
 
 let notificationTimer = null;
+let uploadStatus = {
+    active: false,
+    complete: false,
+    progress: 0,
+    currentText: "",
+    currentTarget: "",
+    targetText: "＞＞ 衛星リンク確立... データ送信チュウ ＜＜",
+    completeText: "＞＞ アップロード完了シマシタ ＜＜",
+    timer: 0,
+    completeTimer: 0
+};
 
 function showNotification(msg) {
     notificationArea.innerText = msg;

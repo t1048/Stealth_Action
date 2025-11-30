@@ -45,7 +45,7 @@ function useItem() {
 
     if (!player.inventory.includes(player.selectedItemType)) {
         if (player.inventory.length > 0) {
-            const unique = [...new Set(player.inventory)].sort((a, b) => a - b);
+            const unique = [...new Set(player.inventory)].sort(compareItemTypes);
             player.selectedItemType = unique[0];
         } else {
             player.selectedItemType = ITEM_NONE;
@@ -68,7 +68,7 @@ function dropItem() {
 
     if (!player.inventory.includes(player.selectedItemType)) {
         if (player.inventory.length > 0) {
-            const unique = [...new Set(player.inventory)].sort((a, b) => a - b);
+            const unique = [...new Set(player.inventory)].sort(compareItemTypes);
             player.selectedItemType = unique[0];
         } else {
             player.selectedItemType = ITEM_NONE;
@@ -79,7 +79,7 @@ function dropItem() {
 
 function selectItemBySlot(slotIndex) {
     if (!player.inventory || player.inventory.length === 0) return;
-    const uniqueTypes = [...new Set(player.inventory)].sort((a, b) => a - b);
+    const uniqueTypes = [...new Set(player.inventory)].sort(compareItemTypes);
 
     if (slotIndex < uniqueTypes.length) {
         player.selectedItemType = uniqueTypes[slotIndex];
@@ -135,7 +135,7 @@ function updateHUD() {
         totalItems = player.inventory.length;
     }
 
-    uniqueTypes.sort((a, b) => a - b);
+    uniqueTypes.sort(compareItemTypes);
 
     if (uniqueTypes.length === 0) {
         inventoryHtml = `<div class="hud-item" style="color:#555">EMPTY (${totalItems}/${player.maxInventorySize})</div>`;

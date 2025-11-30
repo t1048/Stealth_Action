@@ -32,7 +32,7 @@ function createSmartEnemy(gridX, gridY) {
         x: startX,
         y: startY,
         radius: 12,
-        speed: 0.9 + (level * 0.09),
+        speed: (0.9 + (level * 0.09)) * 0.9,
         angle: 0,
         state: "PATROL",
         waypoints: waypoints,
@@ -59,7 +59,7 @@ function findLongestPath(gx, gy) {
         while (true) {
             let nx = cx + dir[0];
             let ny = cy + dir[1];
-            if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS || map[ny][nx] === TILE_WALL) break;
+            if (isTileBlockedForEnemy(nx, ny)) break;
             cx = nx;
             cy = ny;
             distCount++;
@@ -91,7 +91,7 @@ function findTurnPath(gx, gy, prevGx, prevGy) {
         while (true) {
             let nx = cx + dir[0];
             let ny = cy + dir[1];
-            if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS || map[ny][nx] === TILE_WALL) break;
+            if (isTileBlockedForEnemy(nx, ny)) break;
             cx = nx;
             cy = ny;
             distCount++;

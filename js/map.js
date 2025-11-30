@@ -1,11 +1,39 @@
 /**
  * map.js - マップ生成・地形判定
  */
-function createLevel() {
+function chooseLayoutType(currentLevel) {
+    const weights = [];
+    const add = (type, w) => { if (w > 0) weights.push({ type, weight: w }); };
+
+    add("cave", 2);
+    add("maze", 2 + (currentLevel % 2 === 1 ? 1 : 0));
+
+    const securityWeight = currentLevel >= SECURITY_LAYOUT_LEVEL
+        ? 1 + (currentLevel - SECURITY_LAYOUT_LEVEL) * 1.2
+        : 0;
+    const uploadWeight = currentLevel >= UPLOAD_LAYOUT_LEVEL
+        ? 0.8 + (currentLevel - UPLOAD_LAYOUT_LEVEL) * 1.1
+        : 0;
+
+    add("security", securityWeight);
+    add("upload", uploadWeight);
+
+    const total = weights.reduce((s, w) => s + w.weight, 0);
+    let r = Math.random() * total;
+    for (const w of weights) {
+        if (r < w.weight) return w.type;
+        r -= w.weight;
+    }
+    return "cave";
+}
+
+function createLevel(attempt = 0) {
+    const layoutType = chooseLayoutType(level);
+
     let newCols = 20 + (level - 1) * 4;
     let newRows = 16 + (level - 1) * 3;
 
-    if (level >= SECURITY_LAYOUT_LEVEL) {
+    if (layoutType === "security" || layoutType === "upload") {
         newCols = 44;
         newRows = 26;
     }
@@ -23,7 +51,7 @@ function createLevel() {
 
     let initialSelectedType = ITEM_NONE;
     if (keptInventory.length > 0) {
-        const unique = [...new Set(keptInventory)].sort((a, b) => a - b);
+        const unique = [...new Set(keptInventory)].sort(compareItemTypes);
         initialSelectedType = unique[0];
     }
 
@@ -34,6 +62,15 @@ function createLevel() {
     particles = [];
     projectiles = [];
     securityDoor = null;
+    uploadDoor = null;
+    uploadTerminal = null;
+    uploadStatus.active = false;
+    uploadStatus.complete = false;
+    uploadStatus.progress = 0;
+    uploadStatus.currentText = "";
+    uploadStatus.timer = 0;
+    uploadStatus.currentTarget = "";
+    uploadStatus.completeTimer = 0;
     currentTheme = THEMES[(level - 1) % THEMES.length];
     canvas.style.borderColor = currentTheme.wallColor;
 
@@ -47,10 +84,13 @@ function createLevel() {
     let floorTiles = [];
     let layoutInfo = null;
 
-    if (level >= SECURITY_LAYOUT_LEVEL) {
+    if (layoutType === "upload") {
+        layoutInfo = createUploadVaultLayout();
+        floorTiles = layoutInfo.floorTiles;
+    } else if (layoutType === "security") {
         layoutInfo = createDualFacilityLayout();
         floorTiles = layoutInfo.floorTiles;
-    } else if (level % 2 === 1) {
+    } else if (layoutType === "maze") {
         floorTiles = createMazeLayout();
     } else {
         floorTiles = createCaveLayout();
@@ -64,8 +104,8 @@ function createLevel() {
         x: playerStartTile.x * TILE_SIZE + TILE_SIZE / 2,
         y: playerStartTile.y * TILE_SIZE + TILE_SIZE / 2,
         radius: 12,
-        speed: 1.8,
-        baseSpeed: 1.8,
+        speed: 1.62,
+        baseSpeed: 1.62,
         dx: 0,
         dy: 0,
         angle: 0,
@@ -107,6 +147,37 @@ function createLevel() {
         h: TILE_SIZE
     };
 
+    if (layoutInfo?.uploadDoorTile) {
+        uploadDoor = { x: layoutInfo.uploadDoorTile.x, y: layoutInfo.uploadDoorTile.y, locked: true };
+        map[uploadDoor.y][uploadDoor.x] = TILE_DOOR;
+    }
+
+    if (layoutInfo?.uploadTerminalTile) {
+        uploadTerminal = {
+            x: layoutInfo.uploadTerminalTile.x * TILE_SIZE,
+            y: layoutInfo.uploadTerminalTile.y * TILE_SIZE,
+            w: TILE_SIZE,
+            h: TILE_SIZE
+        };
+    }
+
+    const startTile = { x: Math.floor(player.x / TILE_SIZE), y: Math.floor(player.y / TILE_SIZE) };
+    const requiredTiles = [
+        { x: Math.floor(goal.x / TILE_SIZE), y: Math.floor(goal.y / TILE_SIZE) }
+    ];
+    if (uploadTerminal) requiredTiles.push({ x: Math.floor(uploadTerminal.x / TILE_SIZE), y: Math.floor(uploadTerminal.y / TILE_SIZE) });
+    if (uploadDoor) requiredTiles.push({ x: uploadDoor.x, y: uploadDoor.y });
+    if (securityDoor) requiredTiles.push({ x: securityDoor.x, y: securityDoor.y });
+
+    if (!validateConnectivity(startTile, requiredTiles)) {
+        if (attempt < 6) {
+            createLevel(attempt + 1);
+            return;
+        } else {
+            console.warn("Map connectivity failed after retries; using last attempt.");
+        }
+    }
+
     const totalDifficultyBudget = 30 + (level * 18);
     let currentDifficulty = 0;
 
@@ -127,6 +198,14 @@ function createLevel() {
     while (currentDifficulty < totalDifficultyBudget && attempts < maxAttempts) {
         attempts++;
         const tile = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+
+        if (uploadTerminal && tile.x === Math.floor(uploadTerminal.x / TILE_SIZE) && tile.y === Math.floor(uploadTerminal.y / TILE_SIZE)) continue;
+        if (level >= UPLOAD_LAYOUT_LEVEL) {
+            const gx = Math.floor(goal.x / TILE_SIZE);
+            const gy = Math.floor(goal.y / TILE_SIZE);
+            if (Math.abs(tile.x - gx) <= 2 && Math.abs(tile.y - gy) <= 2) continue;
+        }
+        if (isNearImportantDoor(tile, TILE_SIZE * 3)) continue;
 
         if (dist(tile.x * TILE_SIZE, tile.y * TILE_SIZE, player.x, player.y) < 300) continue;
 
@@ -157,6 +236,12 @@ function createLevel() {
 
     for (let i = 0; i < itemCount; i++) {
         const tile = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+        if (uploadTerminal && tile.x === Math.floor(uploadTerminal.x / TILE_SIZE) && tile.y === Math.floor(uploadTerminal.y / TILE_SIZE)) continue;
+        if (level >= UPLOAD_LAYOUT_LEVEL) {
+            const gx = Math.floor(goal.x / TILE_SIZE);
+            const gy = Math.floor(goal.y / TILE_SIZE);
+            if (Math.abs(tile.x - gx) <= 2 && Math.abs(tile.y - gy) <= 2) continue;
+        }
         const type = Math.floor(Math.random() * 3) + 1;
         items.push({
             x: tile.x * TILE_SIZE + TILE_SIZE / 2,
@@ -183,6 +268,8 @@ function createSecurityCamera(floorTiles) {
         const tile = floorTiles[Math.floor(Math.random() * floorTiles.length)];
         if (dist(tile.x * TILE_SIZE, tile.y * TILE_SIZE, player.x, player.y) < 200) continue;
         if (dist(tile.x * TILE_SIZE, tile.y * TILE_SIZE, goal.x, goal.y) < 200) continue;
+        if (uploadTerminal && tile.x === Math.floor(uploadTerminal.x / TILE_SIZE) && tile.y === Math.floor(uploadTerminal.y / TILE_SIZE)) continue;
+        if (isNearImportantDoor(tile, TILE_SIZE * 2.5)) continue;
 
         const wallDirs = [];
         if (map[tile.y - 1][tile.x] === TILE_WALL) wallDirs.push({ angle: Math.PI / 2, label: "TOP" });
@@ -222,7 +309,7 @@ function createSecurityCamera(floorTiles) {
             viewDistance: 130,
             blindRadius: 40,
             viewAngle: Math.PI / 6,
-            swingSpeed: 0.01 + Math.random() * 0.01,
+            swingSpeed: (0.01 + Math.random() * 0.01) * 0.7,
             swingRange: Math.PI / 3,
             phase: Math.random() * Math.PI * 2,
             state: "ACTIVE",
@@ -231,6 +318,34 @@ function createSecurityCamera(floorTiles) {
         return true;
     }
     return false;
+}
+
+function createUploadVaultLayout() {
+    let floorTiles = dedupeTiles(createMazeLayout());
+    let playerStartTile = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+
+    const candidateGoals = floorTiles.filter(t => {
+        const d = dist(t.x * TILE_SIZE, t.y * TILE_SIZE, playerStartTile.x * TILE_SIZE, playerStartTile.y * TILE_SIZE);
+        return d > Math.min(COLS, ROWS) * TILE_SIZE * 0.5;
+    });
+    const goalSeed = candidateGoals.length > 0
+        ? candidateGoals[Math.floor(Math.random() * candidateGoals.length)]
+        : floorTiles[Math.floor(Math.random() * floorTiles.length)];
+
+    const vaultResult = carveGoalVault(goalSeed, floorTiles, playerStartTile);
+    floorTiles = vaultResult.floorTiles;
+    playerStartTile = vaultResult.playerStartTile;
+    const goalTile = vaultResult.goalTile;
+
+    const uploadTile = pickUploadTerminalTile(floorTiles, goalTile, playerStartTile);
+
+    return {
+        floorTiles,
+        playerStartTile,
+        goalTile,
+        uploadDoorTile: vaultResult.doorTile,
+        uploadTerminalTile: uploadTile
+    };
 }
 
 function createDualFacilityLayout() {
@@ -326,6 +441,99 @@ function carveMiniArea(area, corridorY) {
     }
 
     return tiles;
+}
+
+function carveGoalVault(goalSeed, existingTiles, playerStartTile) {
+    const roomRadius = 2;
+    let cx = Math.max(roomRadius + 2, Math.min(COLS - roomRadius - 3, goalSeed.x));
+    let cy = Math.max(roomRadius + 2, Math.min(ROWS - roomRadius - 3, goalSeed.y));
+
+    const insideRoom = (x, y) => {
+        return x >= cx - roomRadius && x <= cx + roomRadius && y >= cy - roomRadius && y <= cy + roomRadius;
+    };
+
+    for (let y = cy - roomRadius; y <= cy + roomRadius; y++) {
+        for (let x = cx - roomRadius; x <= cx + roomRadius; x++) {
+            const isBorder = (x === cx - roomRadius || x === cx + roomRadius || y === cy - roomRadius || y === cy + roomRadius);
+            map[y][x] = isBorder ? TILE_WALL : TILE_FLOOR;
+        }
+    }
+
+    let floorTiles = existingTiles.filter(t => !insideRoom(t.x, t.y));
+
+    const interior = [];
+    for (let y = cy - (roomRadius - 1); y <= cy + (roomRadius - 1); y++) {
+        for (let x = cx - (roomRadius - 1); x <= cx + (roomRadius - 1); x++) {
+            map[y][x] = TILE_FLOOR;
+            interior.push({ x, y });
+        }
+    }
+
+    const doorCandidates = [
+        { x: cx, y: cy - roomRadius, dx: 0, dy: -1 },
+        { x: cx, y: cy + roomRadius, dx: 0, dy: 1 },
+        { x: cx - roomRadius, y: cy, dx: -1, dy: 0 },
+        { x: cx + roomRadius, y: cy, dx: 1, dy: 0 }
+    ].filter(c => c.x > 1 && c.x < COLS - 2 && c.y > 1 && c.y < ROWS - 2);
+
+    let doorTile = doorCandidates.find(c => map[c.y + c.dy][c.x + c.dx] === TILE_FLOOR);
+    if (!doorTile) {
+        doorTile = doorCandidates[Math.floor(Math.random() * doorCandidates.length)];
+    }
+
+    map[doorTile.y][doorTile.x] = TILE_DOOR;
+
+    const outside = { x: doorTile.x + doorTile.dx, y: doorTile.y + doorTile.dy };
+    const inside = { x: doorTile.x - doorTile.dx, y: doorTile.y - doorTile.dy };
+
+    if (map[outside.y][outside.x] === TILE_WALL) map[outside.y][outside.x] = TILE_FLOOR;
+    if (map[inside.y][inside.x] === TILE_WALL) map[inside.y][inside.x] = TILE_FLOOR;
+
+    const leadOut = { x: outside.x + doorTile.dx, y: outside.y + doorTile.dy };
+    if (leadOut.x > 0 && leadOut.x < COLS - 1 && leadOut.y > 0 && leadOut.y < ROWS - 1) {
+        if (map[leadOut.y][leadOut.x] === TILE_WALL) {
+            map[leadOut.y][leadOut.x] = TILE_FLOOR;
+        }
+        floorTiles.push(leadOut);
+    }
+
+    interior.push(inside);
+    floorTiles.push(outside);
+
+    floorTiles = dedupeTiles([...floorTiles, ...interior]);
+
+    let adjustedPlayerStart = playerStartTile;
+    if (insideRoom(playerStartTile.x, playerStartTile.y)) {
+        const alt = floorTiles.find(t => !insideRoom(t.x, t.y));
+        if (alt) adjustedPlayerStart = alt;
+    }
+
+    return { floorTiles, goalTile: { x: cx, y: cy }, doorTile: { x: doorTile.x, y: doorTile.y }, playerStartTile: adjustedPlayerStart };
+}
+
+function pickUploadTerminalTile(floorTiles, goalTile, playerStartTile) {
+    const minDistFromGoal = TILE_SIZE * 8;
+    const minDistFromPlayer = TILE_SIZE * 6;
+
+    const candidates = floorTiles.filter(t => {
+        const dGoal = dist(t.x * TILE_SIZE, t.y * TILE_SIZE, goalTile.x * TILE_SIZE, goalTile.y * TILE_SIZE);
+        const dPlayer = dist(t.x * TILE_SIZE, t.y * TILE_SIZE, playerStartTile.x * TILE_SIZE, playerStartTile.y * TILE_SIZE);
+        return dGoal > minDistFromGoal && dPlayer > minDistFromPlayer;
+    });
+
+    if (candidates.length > 0) {
+        return candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    return floorTiles[Math.floor(Math.random() * floorTiles.length)];
+}
+
+function dedupeTiles(tiles) {
+    const unique = new Map();
+    tiles.forEach(t => {
+        const key = `${t.x},${t.y}`;
+        if (!unique.has(key)) unique.set(key, t);
+    });
+    return [...unique.values()];
 }
 
 function createCaveLayout() {
@@ -465,8 +673,87 @@ function isWall(x, y) {
     const row = Math.floor(y / TILE_SIZE);
     if (col < 0 || col >= COLS || row < 0 || row >= ROWS) return true;
     if (map[row][col] === TILE_WALL) return true;
-    if (map[row][col] === TILE_DOOR && securityDoor && securityDoor.x === col && securityDoor.y === row && securityDoor.locked) return true;
+    if (map[row][col] === TILE_DOOR && isLockedDoor(col, row)) return true;
     return false;
+}
+
+function isLockedDoor(col, row) {
+    if (securityDoor && securityDoor.x === col && securityDoor.y === row && securityDoor.locked) return true;
+    if (uploadDoor && uploadDoor.x === col && uploadDoor.y === row && uploadDoor.locked) return true;
+    return false;
+}
+
+function isTileBlockedForEnemy(col, row) {
+    if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return true;
+    if (map[row][col] === TILE_WALL) return true;
+    if (isLockedDoor(col, row)) return true;
+    return false;
+}
+
+function getDoorInfoAt(col, row) {
+    if (securityDoor && securityDoor.x === col && securityDoor.y === row) {
+        return { type: "SECURITY", locked: securityDoor.locked };
+    }
+    if (uploadDoor && uploadDoor.x === col && uploadDoor.y === row) {
+        return { type: "UPLOAD", locked: uploadDoor.locked };
+    }
+    return null;
+}
+
+function validateConnectivity(startTile, requiredTiles = []) {
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const visited = Array(ROWS).fill(null).map(() => Array(COLS).fill(false));
+    const queue = [];
+
+    const isPassable = (x, y) => {
+        if (x < 0 || y < 0 || x >= COLS || y >= ROWS) return false;
+        return map[y][x] !== TILE_WALL;
+    };
+
+    if (!isPassable(startTile.x, startTile.y)) return false;
+
+    queue.push(startTile);
+    visited[startTile.y][startTile.x] = true;
+    let visitedCount = 0;
+
+    while (queue.length > 0) {
+        const node = queue.shift();
+        visitedCount++;
+        for (const d of dirs) {
+            const nx = node.x + d[0];
+            const ny = node.y + d[1];
+            if (!isPassable(nx, ny)) continue;
+            if (visited[ny][nx]) continue;
+            visited[ny][nx] = true;
+            queue.push({ x: nx, y: ny });
+        }
+    }
+
+    let passableCount = 0;
+    for (let y = 0; y < ROWS; y++) {
+        for (let x = 0; x < COLS; x++) {
+            if (isPassable(x, y)) passableCount++;
+        }
+    }
+
+    const requiredReachable = requiredTiles.every(t => {
+        if (t.x < 0 || t.y < 0 || t.x >= COLS || t.y >= ROWS) return false;
+        return visited[t.y][t.x];
+    });
+
+    return requiredReachable && visitedCount === passableCount;
+}
+
+function isNearImportantDoor(tile, radius) {
+    const tx = tile.x * TILE_SIZE + TILE_SIZE / 2;
+    const ty = tile.y * TILE_SIZE + TILE_SIZE / 2;
+    const checkDoor = (door) => {
+        if (!door) return false;
+        const dx = door.x * TILE_SIZE + TILE_SIZE / 2;
+        const dy = door.y * TILE_SIZE + TILE_SIZE / 2;
+        return dist(tx, ty, dx, dy) < radius;
+    };
+    return checkDoor(securityDoor) || checkDoor(uploadDoor);
 }
 
 function lineIntersectsWall(x1, y1, x2, y2) {
@@ -480,19 +767,35 @@ function lineIntersectsWall(x1, y1, x2, y2) {
 }
 
 function updateSecurityDoor() {
-    if (!securityDoor || !securityDoor.locked) return;
+    if (securityDoor && securityDoor.locked) {
+        const cx = securityDoor.x * TILE_SIZE + TILE_SIZE / 2;
+        const cy = securityDoor.y * TILE_SIZE + TILE_SIZE / 2;
+        const d = dist(player.x, player.y, cx, cy);
 
-    const cx = securityDoor.x * TILE_SIZE + TILE_SIZE / 2;
-    const cy = securityDoor.y * TILE_SIZE + TILE_SIZE / 2;
-    const d = dist(player.x, player.y, cx, cy);
+        if (player.hasKeycard && d < TILE_SIZE * 0.8) {
+            map[securityDoor.y][securityDoor.x] = TILE_FLOOR;
+            securityDoor.locked = false;
+            playSE("item_use");
+            showNotification("SECURITY DOOR OPENED");
+        } else if (!player.hasKeycard && d < TILE_SIZE && frameCount % 60 === 0) {
+            playSE("error");
+            showNotification("ACCESS DENIED");
+        }
+    }
 
-    if (player.hasKeycard && d < TILE_SIZE * 0.8) {
-        map[securityDoor.y][securityDoor.x] = TILE_FLOOR;
-        securityDoor.locked = false;
-        playSE("item_use");
-        showNotification("SECURITY DOOR OPENED");
-    } else if (!player.hasKeycard && d < TILE_SIZE && frameCount % 60 === 0) {
-        playSE("error");
-        showNotification("ACCESS DENIED");
+    if (uploadDoor && uploadDoor.locked) {
+        const cx = uploadDoor.x * TILE_SIZE + TILE_SIZE / 2;
+        const cy = uploadDoor.y * TILE_SIZE + TILE_SIZE / 2;
+        const d = dist(player.x, player.y, cx, cy);
+
+        if (uploadStatus.complete) {
+            map[uploadDoor.y][uploadDoor.x] = TILE_FLOOR;
+            uploadDoor.locked = false;
+            playSE("item_use");
+            showNotification("UPLINK DOOR UNLOCKED");
+        } else if (d < TILE_SIZE && frameCount % 60 === 0) {
+            playSE("error");
+            showNotification("UPLOAD REQUIRED");
+        }
     }
 }
