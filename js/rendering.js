@@ -133,19 +133,38 @@ function draw() {
 
     items.forEach(item => {
         if (item.active) {
-            ctx.fillStyle = item.type === ITEM_KEYCARD ? "#0ff" : "#ff0";
-            ctx.beginPath();
-            ctx.arc(item.x, item.y, 8, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = "#000";
-            ctx.font = "12px Arial";
-            ctx.textAlign = "center";
-            let char = "?";
-            if (item.type === ITEM_SPEED) char = "S";
-            if (item.type === ITEM_VISION) char = "V";
-            if (item.type === ITEM_CLOAK) char = "C";
-            if (item.type === ITEM_KEYCARD) char = "K";
-            ctx.fillText(char, item.x, item.y + 4);
+            if (item.type === ITEM_KEYCARD) {
+                const angle = Date.now() / 500;
+                const w = 12;
+                const h = 18;
+                ctx.save();
+                ctx.translate(item.x, item.y);
+                ctx.rotate(angle);
+                ctx.fillStyle = "#0ff";
+                ctx.fillRect(-w / 2, -h / 2, w, h);
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(-w / 2, -h / 2, w, h);
+                
+                // Simple card detail (chip)
+                ctx.fillStyle = "#000";
+                ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 4);
+                
+                ctx.restore();
+            } else {
+                ctx.fillStyle = "#ff0";
+                ctx.beginPath();
+                ctx.arc(item.x, item.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = "#000";
+                ctx.font = "12px Arial";
+                ctx.textAlign = "center";
+                let char = "?";
+                if (item.type === ITEM_SPEED) char = "S";
+                if (item.type === ITEM_VISION) char = "V";
+                if (item.type === ITEM_CLOAK) char = "C";
+                ctx.fillText(char, item.x, item.y + 4);
+            }
         }
     });
 

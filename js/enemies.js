@@ -43,7 +43,9 @@ function createSmartEnemy(gridX, gridY) {
         targetX: null,
         targetY: null,
         lostSightTimer: 0,
-        color: "#ff3333"
+        color: "#ff3333",
+        path: [],
+        pathTimer: 0
     };
 }
 
@@ -157,10 +159,62 @@ function updateEnemies() {
                 }
             }
 
-            const angle = Math.atan2(enemy.targetY - enemy.y, enemy.targetX - enemy.x);
-            enemy.angle = angle;
-            enemy.dx = Math.cos(angle) * (moveSpeed * 1.5);
-            enemy.dy = Math.sin(angle) * (moveSpeed * 1.5);
+            // Pathfinding Logic
+            const canMoveDirectly = !lineIntersectsWall(enemy.x, enemy.y, enemy.targetX, enemy.targetY);
+
+            if (canMoveDirectly) {
+                const angle = Math.atan2(enemy.targetY - enemy.y, enemy.targetX - enemy.x);
+                enemy.angle = angle;
+                enemy.dx = Math.cos(angle) * (moveSpeed * 1.5);
+                enemy.dy = Math.sin(angle) * (moveSpeed * 1.5);
+                enemy.path = [];
+            } else {
+                if (enemy.pathTimer > 0) enemy.pathTimer--;
+
+                if (!enemy.path || enemy.path.length === 0 || enemy.pathTimer <= 0) {
+                    const startGx = Math.floor(enemy.x / TILE_SIZE);
+                    const startGy = Math.floor(enemy.y / TILE_SIZE);
+                    const targetGx = Math.floor(enemy.targetX / TILE_SIZE);
+                    const targetGy = Math.floor(enemy.targetY / TILE_SIZE);
+
+                    if (startGx !== targetGx || startGy !== targetGy) {
+                        const newPath = findPath(startGx, startGy, targetGx, targetGy);
+                        if (newPath && newPath.length > 0) {
+                            enemy.path = newPath;
+                        }
+                        enemy.pathTimer = 30;
+                    }
+                }
+
+                if (enemy.path && enemy.path.length > 0) {
+                    const nextNode = enemy.path[0];
+                    const nextX = nextNode.x * TILE_SIZE + TILE_SIZE / 2;
+                    const nextY = nextNode.y * TILE_SIZE + TILE_SIZE / 2;
+
+                    const d = dist(enemy.x, enemy.y, nextX, nextY);
+
+                    if (d < 5) {
+                        enemy.path.shift();
+                        // 次のノードへ即座に向かうために再帰的に呼び出すか、次のフレームに任せる
+                        // ここでは次のフレームに任せるが、動きを滑らかにするために速度は維持したい
+                        // しかし、角度が変わる可能性があるので、一旦停止させるか、次のノードへのベクトルを計算し直すのが良い
+                        // ここではシンプルに次のフレームで処理されるのを待つ
+                        enemy.dx = 0;
+                        enemy.dy = 0;
+                    } else {
+                        const angle = Math.atan2(nextY - enemy.y, nextX - enemy.x);
+                        enemy.angle = angle;
+                        enemy.dx = Math.cos(angle) * (moveSpeed * 1.5);
+                        enemy.dy = Math.sin(angle) * (moveSpeed * 1.5);
+                    }
+                } else {
+                    // Fallback
+                    const angle = Math.atan2(enemy.targetY - enemy.y, enemy.targetX - enemy.x);
+                    enemy.angle = angle;
+                    enemy.dx = Math.cos(angle) * (moveSpeed * 1.5);
+                    enemy.dy = Math.sin(angle) * (moveSpeed * 1.5);
+                }
+            }
 
         } else if (enemy.state === "ALERT") {
             enemy.dx = 0;
