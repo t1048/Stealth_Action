@@ -18,7 +18,7 @@
 | `TILE_FLOOR` / `TILE_WALL` / `TILE_DOOR` | 0 / 1 / 2 | タイル種別 |
 | `ITEM_*` | 0-4 | アイテム種別 ID |
 | `ITEM_DURATIONS` | [0,300,600,300,0] | 効果持続フレーム |
-| `SECURITY_LAYOUT_LEVEL` | 4 | security レイアウト出現レベル |
+| `SECURITY_LAYOUT_LEVEL` | 6 | security レイアウト出現レベル |
 | `UPLOAD_LAYOUT_LEVEL` | 6 | upload レイアウト出現レベル |
 | `UPLOAD_REQUIRED_TIME` | FPS * 5 | アップロード完了時間 |
 | `THEMES` | 5要素配列 | テーマ配色定義 |

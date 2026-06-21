@@ -14,7 +14,7 @@
 |---|---|---|
 | `cave` | 2 | 常時 |
 | `maze` | 2（奇数レベルは +1） | 常時 |
-| `security` | `1 + (level - 4) * 1.2` | level >= 4 |
+| `security` | `1 + (level - 6) * 1.2` | level >= 6 |
 | `upload` | `0.8 + (level - 6) * 1.1` | level >= 6 |
 
 ```javascript
@@ -62,7 +62,7 @@ for (const w of weights) {
 └─────────────┴──┴─────────────┘
 ```
 
-1. 左エリア（16×(ROWS-4)）と右エリアを `carveMiniArea()` で生成
+1. 左エリアと右エリアを `carveMiniArea()` で生成（各 wing 幅 = `max(8, floor((COLS - 4 - 4) / 2))`）
 2. 中央水平コリドー（`corridorY = ROWS/2`）で接続
 3. コリドー中央に `TILE_DOOR` + `securityDoor` を配置
 4. 左エリア: プレイヤー開始位置、キーカード配置

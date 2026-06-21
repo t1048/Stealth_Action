@@ -30,13 +30,8 @@ function chooseLayoutType(currentLevel) {
 function createLevel(attempt = 0) {
     const layoutType = chooseLayoutType(level);
 
-    let newCols = 20 + (level - 1) * 4;
-    let newRows = 16 + (level - 1) * 3;
-
-    if (layoutType === "security" || layoutType === "upload") {
-        newCols = 44;
-        newRows = 26;
-    }
+    let newCols = 10 + (level - 1) * 2;
+    let newRows = 8 + (level - 1) * 2;
 
     COLS = Math.min(64, newCols);
     ROWS = Math.min(52, newRows);
@@ -94,6 +89,11 @@ function createLevel(attempt = 0) {
         floorTiles = createMazeLayout();
     } else {
         floorTiles = createCaveLayout();
+    }
+
+    if (level <= 3 && (layoutType === "cave" || layoutType === "maze")) {
+        const trimResult = trimMapToFloorBounds(floorTiles);
+        floorTiles = trimResult.floorTiles;
     }
 
     const playerStartTile = layoutInfo?.playerStartTile
@@ -351,9 +351,11 @@ function createUploadVaultLayout() {
 function createDualFacilityLayout() {
     const floorTiles = [];
     const padding = 2;
+    const corridorWidth = 4;
     const corridorY = Math.floor(ROWS / 2);
-    const leftArea = { x: padding, y: padding, w: 16, h: ROWS - padding * 2 };
-    const rightArea = { x: COLS - padding - 16, y: padding, w: 16, h: ROWS - padding * 2 };
+    const wingW = Math.max(8, Math.floor((COLS - padding * 2 - corridorWidth) / 2));
+    const leftArea = { x: padding, y: padding, w: wingW, h: ROWS - padding * 2 };
+    const rightArea = { x: COLS - padding - wingW, y: padding, w: wingW, h: ROWS - padding * 2 };
 
     const addTile = (x, y, collector) => {
         if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return;
@@ -540,7 +542,8 @@ function createCaveLayout() {
     let x = Math.floor(COLS / 2);
     let y = Math.floor(ROWS / 2);
     let floorTiles = [];
-    const maxSteps = (COLS * ROWS) * 0.6;
+    const fillRatio = level <= 2 ? 0.85 : 0.6;
+    const maxSteps = (COLS * ROWS) * fillRatio;
 
     const visitedSet = new Set();
 
@@ -650,6 +653,50 @@ function createMazeLayout() {
     }
 
     return floorTiles;
+}
+
+function trimMapToFloorBounds(floorTiles) {
+    if (!floorTiles || floorTiles.length === 0) return { floorTiles, offsetX: 0, offsetY: 0 };
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    floorTiles.forEach(t => {
+        if (t.x < minX) minX = t.x;
+        if (t.y < minY) minY = t.y;
+        if (t.x > maxX) maxX = t.x;
+        if (t.y > maxY) maxY = t.y;
+    });
+
+    const pad = 1;
+    const newMinX = Math.max(0, minX - pad);
+    const newMinY = Math.max(0, minY - pad);
+    const newMaxX = Math.min(COLS - 1, maxX + pad);
+    const newMaxY = Math.min(ROWS - 1, maxY + pad);
+
+    let newCols = newMaxX - newMinX + 1;
+    let newRows = newMaxY - newMinY + 1;
+    newCols = Math.floor(newCols / 2) * 2;
+    newRows = Math.floor(newRows / 2) * 2;
+    if (newCols < 8) newCols = 8;
+    if (newRows < 8) newRows = 8;
+
+    const offsetX = newMinX;
+    const offsetY = newMinY;
+
+    const newMap = [];
+    for (let y = 0; y < newRows; y++) {
+        newMap[y] = [];
+        for (let x = 0; x < newCols; x++) {
+            const sx = offsetX + x;
+            const sy = offsetY + y;
+            newMap[y][x] = (sx < COLS && sy < ROWS) ? map[sy][sx] : TILE_WALL;
+        }
+    }
+    map = newMap;
+    COLS = newCols;
+    ROWS = newRows;
+
+    const shifted = floorTiles.map(t => ({ x: t.x - offsetX, y: t.y - offsetY }));
+    return { floorTiles: shifted, offsetX, offsetY };
 }
 
 function getPathLength(points) {

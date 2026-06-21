@@ -107,14 +107,22 @@ function fireStunGun() {
 }
 
 function updateCamera() {
-    let targetX = player.x - canvas.width / 2;
-    let targetY = player.y - canvas.height / 2;
     const mapWidth = COLS * TILE_SIZE;
     const mapHeight = ROWS * TILE_SIZE;
-    targetX = Math.max(0, Math.min(targetX, mapWidth - canvas.width));
-    targetY = Math.max(0, Math.min(targetY, mapHeight - canvas.height));
-    camera.x = targetX;
-    camera.y = targetY;
+
+    if (mapWidth <= canvas.width) {
+        camera.x = (mapWidth - canvas.width) / 2;
+    } else {
+        let targetX = player.x - canvas.width / 2;
+        camera.x = Math.max(0, Math.min(targetX, mapWidth - canvas.width));
+    }
+
+    if (mapHeight <= canvas.height) {
+        camera.y = (mapHeight - canvas.height) / 2;
+    } else {
+        let targetY = player.y - canvas.height / 2;
+        camera.y = Math.max(0, Math.min(targetY, mapHeight - canvas.height));
+    }
 }
 
 function updateHUD() {
