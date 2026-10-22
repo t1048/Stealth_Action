@@ -49,7 +49,11 @@ const PLAYER_COLOR = "#008000";
 const PLAYER_BORDER_COLOR = "#000000";
 
 const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
+const overlayCanvas = document.getElementById('overlayCanvas');
+const ctx = overlayCanvas.getContext('2d');
+const minimapCanvas = document.getElementById('minimapCanvas');
+const minimapCtx = minimapCanvas.getContext('2d');
+let renderer3D = null;
 const levelDisplay = document.getElementById('level-display');
 const inventoryDisplay = document.getElementById('inventory-display');
 const stunDisplay = document.getElementById('stun-display');
@@ -70,9 +74,11 @@ let items = [];
 let particles = [];
 let projectiles = [];
 let keys = {};
-let mouse = { x: 0, y: 0 };
+let mouse = { x: 0, y: 0 }; // 地面上のワールド座標
+const pointer = { x: 400, y: 300, active: false };
 let frameCount = 0;
-let camera = { x: 0, y: 0 };
+// 2Dのオフセットはミニマップ専用。3Dカメラとは共有しない。
+const minimapCamera = { x: 0, y: 0 };
 let securityDoor = null;
 let uploadDoor = null;
 let uploadTerminal = null;

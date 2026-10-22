@@ -1,7 +1,7 @@
 /**
  * rendering.js - 描画とビジュアルエフェクト
  */
-function drawWall(x, y, theme) {
+function drawWall(x, y, theme, ctx = minimapCtx) {
     const tx = x * TILE_SIZE;
     const ty = y * TILE_SIZE;
 
@@ -69,22 +69,39 @@ function drawWall(x, y, theme) {
     }
 }
 
-function draw() {
+function drawMinimap() {
+    const canvas = minimapCanvas;
+    const ctx = minimapCtx;
+    const camera = minimapCamera;
     ctx.fillStyle = currentTheme.bgColor;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     if (gameState === "START") {
-        drawCenterText("STEALTH ROGUE", "Press ENTER to Start", "#0f0");
+        drawScreenUI();
         return;
     }
 
+    let area = renderer3D.getGroundView();
+    const mapWidth = COLS * TILE_SIZE;
+    const mapHeight = ROWS * TILE_SIZE;
+    if (mapWidth <= area.width && mapHeight <= area.height) {
+        area = { x: 0, y: 0, width: mapWidth, height: mapHeight };
+    }
+    camera.x = area.x;
+    camera.y = area.y;
+    const scale = Math.min(canvas.width / area.width, canvas.height / area.height);
     ctx.save();
+    ctx.translate((canvas.width - area.width * scale) / 2, (canvas.height - area.height * scale) / 2);
+    ctx.scale(scale, scale);
     ctx.translate(-camera.x, -camera.y);
+    ctx.beginPath();
+    ctx.rect(area.x, area.y, area.width, area.height);
+    ctx.clip();
 
     const startCol = Math.floor(camera.x / TILE_SIZE);
-    const endCol = startCol + (canvas.width / TILE_SIZE) + 1;
+    const endCol = Math.ceil((camera.x + area.width) / TILE_SIZE);
     const startRow = Math.floor(camera.y / TILE_SIZE);
-    const endRow = startRow + (canvas.height / TILE_SIZE) + 1;
+    const endRow = Math.ceil((camera.y + area.height) / TILE_SIZE);
 
     for (let y = Math.max(0, startRow); y < Math.min(ROWS, endRow); y++) {
         for (let x = Math.max(0, startCol); x < Math.min(COLS, endCol); x++) {
@@ -310,17 +327,6 @@ function draw() {
 
     drawParticles();
 
-    if (player.activeEffect !== ITEM_VISION) {
-        ctx.fillStyle = "#000";
-        ctx.beginPath();
-        ctx.rect(camera.x, camera.y, canvas.width, canvas.height);
-        ctx.arc(player.x, player.y, player.visibleRadius, 0, Math.PI * 2, true);
-        ctx.fill();
-    } else {
-        ctx.fillStyle = "rgba(0, 50, 0, 0.2)";
-        ctx.fillRect(camera.x, camera.y, canvas.width, canvas.height);
-    }
-
     if (player.activeEffect !== ITEM_NONE) {
         const pct = player.effectTimer / ITEM_DURATIONS[player.activeEffect];
         ctx.fillStyle = "#0ff";
@@ -341,18 +347,120 @@ function draw() {
     ctx.textAlign = "left";
     ctx.fillText(currentTheme.name, camera.x + 10, camera.y + canvas.height - 10);
 
+    drawMinimapMarkers(ctx, scale);
     ctx.restore();
 
-    ctx.strokeStyle = "#0f0";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(mouse.x, mouse.y, 10, 0, Math.PI * 2);
-    ctx.moveTo(mouse.x - 15, mouse.y);
-    ctx.lineTo(mouse.x + 15, mouse.y);
-    ctx.moveTo(mouse.x, mouse.y - 15);
-    ctx.lineTo(mouse.x, mouse.y + 15);
-    ctx.stroke();
+    drawScreenUI();
+}
 
+function drawMinimapMarkers(ctx, scale) {
+    // 小さなマップでも主要な点を約2px以上、輪郭を約1pxで残す。
+    function dot(x, y, color, radius = 2) {
+        ctx.fillStyle = color;
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = 1 / scale;
+        ctx.beginPath();
+        ctx.arc(x, y, radius / scale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
+    dot(goal.x + goal.w / 2, goal.y + goal.h / 2, "#0044ff");
+    items.filter(item => item.active).forEach(item => dot(item.x, item.y,
+        item.type === ITEM_KEYCARD ? "#0ff" : "#ff0", 1.5));
+    cameras.forEach(cam => dot(cam.x, cam.y, cam.state === "DISABLED" ? "#555" : "#0f0", 1.5));
+    enemies.forEach(enemy => dot(enemy.x, enemy.y,
+        enemy.state === "STUNNED" ? "#555" : enemy.state === "ALERT" ? "orange" : "#f00"));
+    dot(player.x, player.y, PLAYER_COLOR, 2.5);
+}
+
+function drawOccludedMarkers() {
+    // 壁に隠れた実体だけを、地面上の位置に輪郭付きの目印で示す。
+    function marker(entity, height, color, square) {
+        if (player.activeEffect !== ITEM_VISION && dist(player.x, player.y, entity.x, entity.y) > player.visibleRadius) return;
+        if (!renderer3D.isOccluded(entity.x, entity.y, height)) return;
+        const screen = renderer3D.worldToScreen(entity.x, entity.y);
+        ctx.strokeStyle = "#fff";
+        ctx.fillStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        if (square) ctx.rect(screen.x - 4, screen.y - 4, 8, 8);
+        else ctx.arc(screen.x, screen.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+    }
+    enemies.forEach(enemy => marker(enemy, 21,
+        enemy.state === "STUNNED" ? "#555" : enemy.state === "ALERT" ? "orange" : "#f00", false));
+    items.filter(item => item.active).forEach(item => marker(item, 20,
+        item.type === ITEM_KEYCARD ? "#0ff" : "#ff0", true));
+}
+
+function draw() {
+    renderer3D.draw();
+    drawMinimap();
+}
+
+function drawScreenUI() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (gameState === "START") {
+        drawCenterText("STEALTH ROGUE", "Press ENTER to Start", "#0f0");
+        return;
+    }
+    drawOccludedMarkers();
+    if (pointer.active) {
+        ctx.strokeStyle = "#0f0";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pointer.x, pointer.y, 10, 0, Math.PI * 2);
+        ctx.moveTo(pointer.x - 15, pointer.y);
+        ctx.lineTo(pointer.x + 15, pointer.y);
+        ctx.moveTo(pointer.x, pointer.y - 15);
+        ctx.lineTo(pointer.x, pointer.y + 15);
+        ctx.stroke();
+    }
+    if (player.activeEffect !== ITEM_NONE) {
+        ctx.fillStyle = "#0ff";
+        ctx.font = "14px Courier New";
+        ctx.textAlign = "left";
+        ctx.fillText(`${ITEM_NAMES[player.activeEffect]}: ${Math.ceil(player.effectTimer / FPS)}s`, 12, 24);
+    }
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px Courier New";
+    ctx.textAlign = "left";
+    ctx.fillText(currentTheme.name, 12, canvas.height - 12);
+    enemies.forEach(enemy => {
+        if (dist(player.x, player.y, enemy.x, enemy.y) > player.visibleRadius && player.activeEffect !== ITEM_VISION) return;
+        if (enemy.state !== "CHASE" && enemy.state !== "ALERT") return;
+        const screen = renderer3D.worldToScreen(enemy.x, enemy.y);
+        ctx.fillStyle = enemy.state === "CHASE" ? "red" : "orange";
+        ctx.font = "bold 20px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(enemy.state === "CHASE" ? "!" : "?", screen.x, screen.y - 30);
+    });
+    if (navActive && Math.floor(Date.now() / 200) % 2 === 0) {
+        const angle = Math.atan2(goal.y + goal.h / 2 - player.y, goal.x + goal.w / 2 - player.x);
+        const tip = renderer3D.worldToScreen(player.x + Math.cos(angle) * 60, player.y + Math.sin(angle) * 60);
+        const left = renderer3D.worldToScreen(player.x + Math.cos(angle) * 60 - Math.cos(angle - 0.5) * 15,
+            player.y + Math.sin(angle) * 60 - Math.sin(angle - 0.5) * 15);
+        const right = renderer3D.worldToScreen(player.x + Math.cos(angle) * 60 - Math.cos(angle + 0.5) * 15,
+            player.y + Math.sin(angle) * 60 - Math.sin(angle + 0.5) * 15);
+        ctx.fillStyle = "#0ff";
+        ctx.beginPath();
+        ctx.moveTo(tip.x, tip.y);
+        ctx.lineTo(left.x, left.y);
+        ctx.lineTo(right.x, right.y);
+        ctx.fill();
+    }
+    if (uploadTerminal) {
+        const screen = renderer3D.worldToScreen(uploadTerminal.x + uploadTerminal.w / 2,
+            uploadTerminal.y + uploadTerminal.h / 2);
+        if (player.activeEffect === ITEM_VISION || dist(player.x, player.y, uploadTerminal.x + uploadTerminal.w / 2,
+            uploadTerminal.y + uploadTerminal.h / 2) <= player.visibleRadius) {
+            ctx.fillStyle = "#fff";
+            ctx.font = "12px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("UPLOAD", screen.x, screen.y);
+        }
+    }
     drawUploadUI();
 
     if (navMessage.active) {
@@ -443,7 +551,7 @@ function updateParticles() {
     }
 }
 
-function drawParticles() {
+function drawParticles(ctx = minimapCtx) {
     particles.forEach(p => {
         ctx.globalAlpha = p.life / 30;
         ctx.fillStyle = p.color;

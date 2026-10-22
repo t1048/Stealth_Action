@@ -67,7 +67,7 @@ function createLevel(attempt = 0) {
     uploadStatus.currentTarget = "";
     uploadStatus.completeTimer = 0;
     currentTheme = THEMES[(level - 1) % THEMES.length];
-    canvas.style.borderColor = currentTheme.wallColor;
+    canvas.style.outlineColor = currentTheme.wallColor;
 
     for (let y = 0; y < ROWS; y++) {
         map[y] = [];
@@ -263,19 +263,21 @@ function createLevel(attempt = 0) {
 
 function createSecurityCamera(floorTiles) {
     const candidates = [];
+    if (floorTiles.length === 0) return;
 
     for (let i = 0; i < 50; i++) {
         const tile = floorTiles[Math.floor(Math.random() * floorTiles.length)];
+        if (!tile || tile.x < 0 || tile.x >= COLS || tile.y < 0 || tile.y >= ROWS) continue;
         if (dist(tile.x * TILE_SIZE, tile.y * TILE_SIZE, player.x, player.y) < 200) continue;
         if (dist(tile.x * TILE_SIZE, tile.y * TILE_SIZE, goal.x, goal.y) < 200) continue;
         if (uploadTerminal && tile.x === Math.floor(uploadTerminal.x / TILE_SIZE) && tile.y === Math.floor(uploadTerminal.y / TILE_SIZE)) continue;
         if (isNearImportantDoor(tile, TILE_SIZE * 2.5)) continue;
 
         const wallDirs = [];
-        if (map[tile.y - 1][tile.x] === TILE_WALL) wallDirs.push({ angle: Math.PI / 2, label: "TOP" });
-        if (map[tile.y + 1][tile.x] === TILE_WALL) wallDirs.push({ angle: -Math.PI / 2, label: "BOTTOM" });
-        if (map[tile.y][tile.x - 1] === TILE_WALL) wallDirs.push({ angle: 0, label: "LEFT" });
-        if (map[tile.y][tile.x + 1] === TILE_WALL) wallDirs.push({ angle: Math.PI, label: "RIGHT" });
+        if (map[tile.y - 1]?.[tile.x] === TILE_WALL) wallDirs.push({ angle: Math.PI / 2, label: "TOP" });
+        if (map[tile.y + 1]?.[tile.x] === TILE_WALL) wallDirs.push({ angle: -Math.PI / 2, label: "BOTTOM" });
+        if (map[tile.y]?.[tile.x - 1] === TILE_WALL) wallDirs.push({ angle: 0, label: "LEFT" });
+        if (map[tile.y]?.[tile.x + 1] === TILE_WALL) wallDirs.push({ angle: Math.PI, label: "RIGHT" });
 
         if (wallDirs.length > 0) {
             candidates.push({ tile: tile, dir: wallDirs[Math.floor(Math.random() * wallDirs.length)] });

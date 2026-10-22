@@ -29,12 +29,19 @@
         </div>
     </div>
 
-    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="game-view">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+        <canvas id="overlayCanvas" width="800" height="600"></canvas>
+        <canvas id="minimapCanvas" width="150" height="112" aria-label="ミニマップ"></canvas>
+    </div>
     
     <div class="status-msg">
         移動: WASD | アイテム: [Space]使用 [Q]廃棄 [1-4]切替 | 射撃: 左クリック
     </div>
     
+<script type="importmap">
+    {"imports": {"three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js"}}
+</script>
 <script src="./js/state.js"></script>
 <script src="./js/audio.js"></script>
 <script src="./js/map.js"></script>
@@ -43,5 +50,6 @@
 <script src="./js/player.js"></script>
 <script src="./js/rendering.js"></script>
 <script src="./js/game.js"></script>
+<script type="module" src="./js/rendering3d.js"></script>
 </body>
 </html>

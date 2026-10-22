@@ -21,6 +21,8 @@ function startGame() {
     navMessage.timer = 0;
 
     updateHUD();
+    updateCamera();
+    updateAim();
 
     if (isAudioInit) {
         bgmState.nextNoteTime = audioCtx.currentTime;
@@ -264,12 +266,21 @@ canvas.addEventListener('mousemove', e => {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    mouse.x = (e.clientX - rect.left) * scaleX;
-    mouse.y = (e.clientY - rect.top) * scaleY;
+    pointer.x = (e.clientX - rect.left) * scaleX;
+    pointer.y = (e.clientY - rect.top) * scaleY;
+    pointer.active = true;
+    updateAim();
 });
 
+canvas.addEventListener('mouseleave', () => { pointer.active = false; });
+
 canvas.addEventListener('mousedown', e => {
-    if (gameState === "PLAYING") {
+    if (gameState === "PLAYING" && e.button === 0) {
+        const rect = canvas.getBoundingClientRect();
+        pointer.x = (e.clientX - rect.left) * canvas.width / rect.width;
+        pointer.y = (e.clientY - rect.top) * canvas.height / rect.height;
+        pointer.active = true;
+        updateAim();
         fireStunGun();
     }
 });
@@ -297,4 +308,4 @@ window.addEventListener('wheel', e => {
     }
 });
 
-gameLoop();
+// Three.jsの初期化完了後にメインループを開始する。

@@ -19,9 +19,8 @@ function updatePlayer() {
 
     moveEntity(player);
 
-    const playerScreenX = player.x - camera.x;
-    const playerScreenY = player.y - camera.y;
-    player.angle = Math.atan2(mouse.y - playerScreenY, mouse.x - playerScreenX);
+    updateCamera();
+    updateAim();
 }
 
 function useItem() {
@@ -107,21 +106,13 @@ function fireStunGun() {
 }
 
 function updateCamera() {
-    const mapWidth = COLS * TILE_SIZE;
-    const mapHeight = ROWS * TILE_SIZE;
+    if (renderer3D && Number.isFinite(player.x)) renderer3D.updateCamera();
+}
 
-    if (mapWidth <= canvas.width) {
-        camera.x = (mapWidth - canvas.width) / 2;
-    } else {
-        let targetX = player.x - canvas.width / 2;
-        camera.x = Math.max(0, Math.min(targetX, mapWidth - canvas.width));
-    }
-
-    if (mapHeight <= canvas.height) {
-        camera.y = (mapHeight - canvas.height) / 2;
-    } else {
-        let targetY = player.y - canvas.height / 2;
-        camera.y = Math.max(0, Math.min(targetY, mapHeight - canvas.height));
+function updateAim() {
+    if (!renderer3D || !pointer.active || !Number.isFinite(player.x)) return;
+    if (renderer3D.screenToWorld(pointer.x, pointer.y, mouse)) {
+        player.angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
     }
 }
 
