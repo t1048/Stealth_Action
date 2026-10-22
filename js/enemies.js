@@ -36,6 +36,24 @@ function createSmartEnemy(gridX, gridY) {
 
     if (getPathLength(waypoints) < TILE_SIZE * 4) return null;
 
+    return buildEnemyObject(startX, startY, waypoints);
+}
+
+// 設計済みの巡回ルート(タイル座標の列。最後の点から最初の点へ戻る)から敵を作る。facility 用。
+function createRouteEnemy(routeTiles) {
+    if (!routeTiles || routeTiles.length < 2) return null;
+    const waypoints = routeTiles.map(t => ({
+        x: t.x * TILE_SIZE + TILE_SIZE / 2,
+        y: t.y * TILE_SIZE + TILE_SIZE / 2,
+        gx: t.x,
+        gy: t.y
+    }));
+    if (getPathLength(waypoints) < TILE_SIZE * 4) return null;
+    return buildEnemyObject(waypoints[0].x, waypoints[0].y, waypoints);
+}
+
+// createSmartEnemy / createRouteEnemy 共通の敵オブジェクト
+function buildEnemyObject(startX, startY, waypoints) {
     return {
         x: startX,
         y: startY,

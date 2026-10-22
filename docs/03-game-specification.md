@@ -63,7 +63,7 @@
 
 | 全レイアウト共通 | `min(64, 10 + (level-1)*2)` | `min(52, 8 + (level-1)*2)` |
 
-偶数に丸められる（`Math.floor(n/2)*2`）。security / upload も同一式を使用する。レベル1〜3のcave/mazeは床タイル範囲にマップを切り詰める。
+偶数に丸められる（`Math.floor(n/2)*2`）。security / upload / facility も同一式を使用する。レベル1〜3のcave/mazeは床タイル範囲にマップを切り詰める（facility は切り詰めない）。
 
 ### 5.2 テーマ
 
@@ -85,9 +85,14 @@ THEMES[(level - 1) % 5]
 
 | レベル | イベント |
 |---|---|
-| 1-5 | cave / maze のみ |
+| 1-2 | cave / maze のみ |
+| 3+ | `facility` レイアウト出現（部屋と廊下の施設。柱・アルコーブ・角の隠れ場所、設計された敵の巡回ルート、カメラ・アイテム配置。重み3） |
 | 6+ | `security` レイアウト出現（キーカード + セキュリティドア） |
 | 6+ | `upload` レイアウト出現（アップロード端末 + 金庫ドア） |
+
+`facility` は床タイル範囲への切り詰めを行わず、敵・カメラ・アイテムはランダムではなく生成時に設計された配置から採用する（アルゴリズムは [05-algorithms.md](./05-algorithms.md) §2.5・§4.4）。
+
+デバッグ: `window.forceLayout = "facility"`（またはURLに `?layout=facility`）でレイアウトを固定できる（`cave` / `maze` / `security` / `upload` も可）。
 
 ### 5.4 ナビゲーション支援
 

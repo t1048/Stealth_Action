@@ -8,7 +8,7 @@
 
 ### 1.1 chooseLayoutType()
 
-重み付きランダムで4種のレイアウトから1つを選択する。
+重み付きランダムで5種のレイアウトから1つを選択する。
 
 | レイアウト | 基本重み | 出現条件 |
 |---|---|---|
@@ -16,6 +16,9 @@
 | `maze` | 2（奇数レベルは +1） | 常時 |
 | `security` | `1 + (level - 6) * 1.2` | level >= 6 |
 | `upload` | `0.8 + (level - 6) * 1.1` | level >= 6 |
+| `facility` | 3（`FACILITY_LAYOUT_WEIGHT`） | level >= 3（`FACILITY_LAYOUT_LEVEL`。COLS>=14, ROWS>=12） |
+
+デバッグ用に、`window.forceLayout = "facility"`（またはURLの `?layout=facility`）でレイアウトを固定できる（`getForcedLayoutType()`。値は `cave` / `maze` / `security` / `upload` / `facility`）。
 
 ```javascript
 // 重み合計に対する乱数で選択
@@ -80,6 +83,35 @@ for (const w of weights) {
 
 **金庫ドア解錠条件:** `uploadStatus.complete === true` の時点で自動解錠（距離判定なし）。未完了で近接した場合は "UPLOAD REQUIRED" 通知のみ
 
+### 2.5 facility（設計型の施設）
+
+**手法:** 部屋と廊下の矩形配置（セルグリッド）+ 部屋グラフ。実装は [`js/mapgen-facility.js`](../js/mapgen-facility.js) の `createFacilityLayout()`。`trimMapToFloorBounds` は適用しない。
+
+```
+┌───────┐   ┌───────┐   ┌───────┐
+│ start │───│  hub  │───│ side  │   部屋 = 節点、廊下 = 辺
+│  (S)  │   │ ┌─┐   │   └───────┘   hub は柱・仕切り壁、
+└───┬───┘   └─┤p├─┬─┘               廊下にはアルコーブ(a)と角(c)
+    │         └─┘ │
+┌───┴───┐   ┌─────┴─┐
+│corridor───│ goal  │   メインルートとは別に迂回(ループ)を必ず持つ
+└───────┘   │  (G)  │
+            └───────┘
+```
+
+1. **セル分割:** 内側（外周1タイルを除く）を `nC x nR` のセルに分ける。`nC = clamp(floor(W / 7), 2, 6)`、`nR = clamp(floor(H / 6), 2, 5)`（`FACILITY_CELL_W/H`、`FACILITY_MAX_GRID_COLS/ROWS`）。セルの幅・高さは±1〜2ずらす。小さいマップは部屋数が減る（Lv3〜6 は 2x2=4部屋、64x52 は 6x5=30部屋）
+2. **部屋グラフ:** 部屋=セル、辺=隣接セル間の廊下。スタートは角のセル、ゴールは（グリッド距離が最大の）遠いセル。ランダム全域木 + `FACILITY_LOOP_RATIO`(0.35)の割合のループ辺。メインルート（グラフ上の最短経路）のどれか1辺を外してもゴールへ着けるよう、足りなければ2x2の「四角」を完成させる辺を追加する（`facilityEnsureBypass`）
+3. **部屋の種類（`rooms[].type`）:** `start` / `goal` / `hub`（次数3以上）/ `side`（次数1の行き止まり）/ `corridor`（次数2）。種類で形が決まる: hub は大きめ、side は3〜4タイル四方の小部屋、corridor は軸方向なら厚さ2の細長い広間、start/goal は中〜大。各部屋は必ずセルの中心の行・列（「軸」）を含み、隣の部屋と軸上の直線で繋げられる
+4. **廊下:** まず全辺を軸上の直線で予約し、隙間が3タイル以上なら確率 `FACILITY_Z_CORRIDOR_CHANCE`(0.55) でZ字（角が2つ）、または軸からずらした直線に置き換える。他の廊下と重なる/隣接する候補は捨てる。部屋の出入口（`rooms[].doors`）は部屋の縁のタイル
+5. **柱・仕切り壁:** start/hub/goal のうち 5x5 以上の部屋に、外周2タイルより内側へ4タイル格子で1タイルの柱を置く（`FACILITY_PILLAR_SKIP_CHANCE` で間引き、`FACILITY_PARTITION_CHANCE` で2タイルの仕切り壁にする）。外周2周は常に空くので歩行可能性と巡回ルートは壊れない
+6. **隠れ場所 `hideSpots[]`:** `pillar`（柱の隣で、部屋の出入口から視線が遮られるタイル）、`corner`（Z字廊下の角）、`alcove`（廊下の途中に壁を1タイル凹ませる。周囲が壁のときだけ掘る）
+7. **ルート上の間隔保証:** スタート→ゴールの最短歩行経路（メインルート）と、メインルート上の廊下を1本塞いだ迂回ルートの両方について、隠れ場所が `FACILITY_HIDE_REACH`(2) タイル以内にない区間が `FACILITY_HIDE_MAX_GAP`(10) を超えたら、その区間の中央付近にアルコーブ（掘れなければ柱を1本立ててその影）を追加する。スタート・ゴールは「隠れ場所がある」ものとして数える
+8. **検証:** 生成後に次をすべて確認し、満たさなければ最大40回（`FACILITY_MAX_ATTEMPTS`）作り直す（後半は部屋数を1段減らす）。ゴールまでの歩行経路長 >= `min(COLS,ROWS)*0.6`、スタート・ゴールの直線距離 >= `min(COLS,ROWS)*TILE_SIZE*0.6`、`validateConnectivity` 成功、迂回ルートの存在、隠れ場所の間隔。全部失敗したときは一本道の最小レイアウトを返し、`createLevel` の既存リトライ（§3）に任せる
+
+**出力:** `{ floorTiles, playerStartTile, goalTile, rooms, hideSpots, enemyRoutes, cameraSpots, itemSpots, designed: true }`（他に `corridors`、`mainRoute`、`bypassRoute` など）。`rooms[]` は `{ id, type, x0,y0,x1,y1, w,h, degree, onMain, doors, pillars }`。
+
+**乱数:** facility 内の乱数は `facilityRand()` 1か所を通す。検証時は `setFacilityRng(fn)` で seed 付きの乱数に差し替えられる（既定は `Math.random()`）。
+
 ---
 
 ## 3. 接続性検証
@@ -130,6 +162,27 @@ totalDifficultyBudget = 30 + (level * 18)
 3. 壁方向に向けて `baseAngle` を設定
 4. プレイヤー・ゴールから 200px 以上、重要ドアから 100px 以上離れる（`TILE_SIZE * 2.5`）
 
+### 4.4 設計済みレイアウト（facility）の配置
+
+`layoutInfo.designed === true` のとき、`createLevel` は §4.2・§4.3 のランダム配置を行わず、`placeDesignedLayoutContents()`（`js/mapgen-facility.js`）で layoutInfo の設計済み配置を採用する。難易度予算（§4.1）、カメラ上限、距離制約は同じ。cave / maze / security / upload の配置処理は変更していない。
+
+**カメラ（`cameraSpots[]`）:** `{ x, y, wall, angle, score }`。壁際の床タイルと向き（壁の反対側）。メインルートと迂回ルートのタイルのうち、カメラの半平面かつ130px以内で視線が通る数をスコアにし、部屋の出入口の近く（+2）を優先、隠れ場所は除外、カメラ同士は5タイル以上離す。上から `2 + (level-1)` 個まで、予算の40%（コスト10）の範囲で採用する。プレイヤー・ゴールから200px以上（設置後のカメラ位置で測る）。
+
+**敵（`enemyRoutes[]`）:** `{ kind, priority, loop, tiles, ref }`。`tiles` は軸に平行なタイルの waypoint 列で、最後→最初も壁に遮られない。往復ルートは折り返しの点を含めた列にしてある（巡回は最後の点から最初の点へ戻るため）。
+
+| kind | 内容 |
+|---|---|
+| `goalGuard` | ゴール部屋の外周を周回（小さければ長辺を往復） |
+| `hubLoop` | hub の外周を周回（柱の周りを回る形になる） |
+| `hall` | corridor 部屋（細長い広間）を端から端まで往復 |
+| `corridor` | 廊下を、両端の部屋へ1タイル入った点まで往復（Z字の角に waypoint） |
+
+- 優先度: 1 = ゴール部屋・ゴールへ繋がるメインルート上の廊下、2 = メインルート上、3 = それ以外（サブルート）。同じ優先度の中はシャッフル
+- 除外: スタート部屋の中に点があるルート、プレイヤー初期位置から `FACILITY_ENEMY_SAFE_TILES`(4) タイル以内に点があるルート
+- 採用: 優先度順に、出現位置（先頭 waypoint。ルートの列を回して選ぶ）がプレイヤーから300px以上・既存の敵から400px以上（タイル中心で測る）で、コスト `waypoints.length * 3 + pathLength/TILE_SIZE` が予算内（最初の1体は無条件）のものを `createRouteEnemy(tiles)` で敵にする
+
+**アイテム（`itemSpots[]`）:** `{ x, y, roomId, group }`。行き止まりの side 部屋（group 0）→ メインルート外の部屋（1）→ メインルート上の部屋（2）の順で、部屋ごとに出入口から最も遠いタイルを1個ずつ巡回して選ぶ。スタート部屋・ゴール部屋・ゴールから2タイル以内には置かない。数は §6.3（2〜3個 + `floor(level/3)`）、種類は SPEED / VISION / CLOAK からランダム。
+
 ---
 
 ## 5. A* 経路探索
@@ -165,6 +218,8 @@ totalDifficultyBudget = 30 + (level * 18)
 2. p1 から `findTurnPath()` — 前方向以外の最長点 p2
 3. p2 から p1 以外方向の最長点 p3（開始点から 3 タイル以上離れていれば追加）
 4. 巡回距離 < 4 タイルなら配置拒否（`null` 返却）
+
+設計済みの巡回ルート（facility、§4.4）は `createRouteEnemy(routeTiles)` で作る。waypoints はタイル列をそのまま使い、先頭が出現位置。巡回距離 < 4 タイルなら `null`。敵オブジェクトの形は共通の `buildEnemyObject()` で `createSmartEnemy` と同じ。
 
 ### 6.2 状態遷移
 

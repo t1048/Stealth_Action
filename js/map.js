@@ -1,7 +1,24 @@
 /**
  * map.js - マップ生成・地形判定
  */
+// デバッグ用: window.forceLayout = "facility" か URL の ?layout=facility でレイアウトを固定する
+function getForcedLayoutType() {
+    const valid = ["cave", "maze", "security", "upload", "facility"];
+    let forced = null;
+    if (typeof window !== "undefined") {
+        if (window.forceLayout) {
+            forced = window.forceLayout;
+        } else if (window.location && window.location.search) {
+            forced = new URLSearchParams(window.location.search).get("layout");
+        }
+    }
+    return valid.includes(forced) ? forced : null;
+}
+
 function chooseLayoutType(currentLevel) {
+    const forced = getForcedLayoutType();
+    if (forced) return forced;
+
     const weights = [];
     const add = (type, w) => { if (w > 0) weights.push({ type, weight: w }); };
 
@@ -17,6 +34,7 @@ function chooseLayoutType(currentLevel) {
 
     add("security", securityWeight);
     add("upload", uploadWeight);
+    add("facility", currentLevel >= FACILITY_LAYOUT_LEVEL ? FACILITY_LAYOUT_WEIGHT : 0);
 
     const total = weights.reduce((s, w) => s + w.weight, 0);
     let r = Math.random() * total;
@@ -84,6 +102,9 @@ function createLevel(attempt = 0) {
         floorTiles = layoutInfo.floorTiles;
     } else if (layoutType === "security") {
         layoutInfo = createDualFacilityLayout();
+        floorTiles = layoutInfo.floorTiles;
+    } else if (layoutType === "facility") {
+        layoutInfo = createFacilityLayout();
         floorTiles = layoutInfo.floorTiles;
     } else if (layoutType === "maze") {
         floorTiles = createMazeLayout();
@@ -176,6 +197,12 @@ function createLevel(attempt = 0) {
         } else {
             console.warn("Map connectivity failed after retries; using last attempt.");
         }
+    }
+
+    // 設計済みレイアウト(facility)は、ランダム配置ではなく layoutInfo の配置を採用する
+    if (layoutInfo?.designed) {
+        placeDesignedLayoutContents(layoutInfo);
+        return;
     }
 
     const totalDifficultyBudget = 30 + (level * 18);
