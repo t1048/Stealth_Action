@@ -1,6 +1,14 @@
 /**
  * enemies.js - 敵・カメラ挙動
  */
+// 検知ゲージ。基準は約30フレームで満タン。近いほど、正面ほど速い。
+const DETECT_BASE_RATE = 1 / 30;
+const DETECT_DECAY = 1 / 60;
+const DETECT_DIST_NEAR = 2;
+const DETECT_DIST_FAR = 1;
+const DETECT_ANGLE_CENTER = 1.5;
+const DETECT_ANGLE_EDGE = 1;
+
 function createSmartEnemy(gridX, gridY) {
     const startX = gridX * TILE_SIZE + TILE_SIZE / 2;
     const startY = gridY * TILE_SIZE + TILE_SIZE / 2;
@@ -40,6 +48,7 @@ function createSmartEnemy(gridX, gridY) {
         waitTimer: 0,
         viewDistance: 160,
         viewAngle: Math.PI / 4,
+        detect: 0,
         targetX: null,
         targetY: null,
         lostSightTimer: 0,
@@ -111,6 +120,24 @@ function findTurnPath(gx, gy, prevGx, prevGy) {
     return maxDist > 1 ? bestPoint : null;
 }
 
+function decayDetect(enemy) {
+    enemy.detect = Math.max(0, enemy.detect - DETECT_DECAY);
+    if (enemy.detect < DETECT_DECAY * 0.5) enemy.detect = 0;
+}
+
+function detectGain(enemy) {
+    const d = dist(enemy.x, enemy.y, player.x, player.y);
+    const distT = Math.min(1, d / enemy.viewDistance);
+    const distFactor = DETECT_DIST_NEAR + (DETECT_DIST_FAR - DETECT_DIST_NEAR) * distT;
+    const angleToPlayer = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+    let angleDiff = angleToPlayer - enemy.angle;
+    while (angleDiff <= -Math.PI) angleDiff += Math.PI * 2;
+    while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+    const angleT = Math.min(1, Math.abs(angleDiff) / enemy.viewAngle);
+    const angleFactor = DETECT_ANGLE_CENTER + (DETECT_ANGLE_EDGE - DETECT_ANGLE_CENTER) * angleT;
+    return DETECT_BASE_RATE * distFactor * angleFactor;
+}
+
 function updateEnemies() {
     let anyChase = false;
 
@@ -119,6 +146,7 @@ function updateEnemies() {
 
         if (enemy.state === "STUNNED") {
             enemy.waitTimer--;
+            decayDetect(enemy);
             if (enemy.waitTimer <= 0) {
                 enemy.state = "ALERT";
                 enemy.waitTimer = 60;
@@ -132,18 +160,30 @@ function updateEnemies() {
         }
 
         if (canSeePlayer(enemy)) {
-            if (player.activeEffect !== ITEM_CLOAK) {
-                if (enemy.state !== "CHASE") playSE("alert");
-                enemy.state = "CHASE";
+            if (enemy.state === "CHASE") {
                 enemy.targetX = player.x;
                 enemy.targetY = player.y;
                 enemy.waitTimer = 0;
                 enemy.lostSightTimer = 0;
+            } else {
+                enemy.detect = Math.min(1, enemy.detect + detectGain(enemy));
+                if (enemy.detect >= 1) {
+                    playSE("alert");
+                    enemy.state = "CHASE";
+                    enemy.targetX = player.x;
+                    enemy.targetY = player.y;
+                    enemy.waitTimer = 0;
+                    enemy.lostSightTimer = 0;
+                    enemy.detect = 1;
+                }
             }
+        } else if (enemy.state !== "CHASE") {
+            decayDetect(enemy);
         }
 
         if (enemy.state === "CHASE") {
             anyChase = true;
+            enemy.detect = 1;
 
             if (!canSeePlayer(enemy)) {
                 enemy.lostSightTimer++;

@@ -19,7 +19,8 @@ const wallHeight = 40;
 
 const terrain = new THREE.Group();
 const actors = new THREE.Group();
-scene.add(terrain, actors);
+const visions = new THREE.Group();
+scene.add(terrain, actors, visions);
 const box = new THREE.BoxGeometry(1, 1, 1);
 const sphere = new THREE.SphereGeometry(1, 12, 8);
 const cone = new THREE.ConeGeometry(1, 1, 3);
@@ -30,6 +31,11 @@ let renderedMap = null;
 let doors = [];
 let occluders = [];
 const actorMeshes = new Map();
+const visionMeshes = new Map();
+const visionMaterials = new Map();
+const VISION_HEIGHT = 1;
+const VISION_ANGLE_STEP = 4 * Math.PI / 180;
+const VISION_RAY_STEP = 4;
 const raycaster = new THREE.Raycaster();
 const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hit = new THREE.Vector3();
@@ -75,6 +81,7 @@ function rebuildTerrain() {
     terrain.clear();
     actors.clear();
     actorMeshes.clear();
+    clearVisionCones();
     doors = [];
     occluders = [];
     renderedMap = map;
@@ -216,8 +223,18 @@ function createHumanModel(isPlayer) {
             20 + Math.cos(angle) * 9, 24, Math.sin(angle) * 9, 2, 2, 2, false, true);
     }
     stunMark.visible = false;
+    let detectBar = null;
+    let detectFill = null;
+    if (!isPlayer) {
+        detectBar = new THREE.Group();
+        detectBar.name = 'detect-bar';
+        model.add(detectBar);
+        mesh(detectBar, box, '#141414', 0, 0, 50, 16, 2.4, 1.6, 0.85);
+        detectFill = mesh(detectBar, box, '#ffff32', 0, 0, 50.4, 0.01, 1.5, 1.2);
+        detectBar.visible = false;
+    }
     model.userData = { figure, parts, leftLeg, rightLeg, leftArm, rightArm, stunMark,
-        lastX: null, lastY: null, lastFrame: -1, phase: 0, swing: 0 };
+        detectBar, detectFill, lastX: null, lastY: null, lastFrame: -1, phase: 0, swing: 0 };
     return model;
 }
 
@@ -260,6 +277,34 @@ function drawHuman(entity, isPlayer) {
     model.position.set(entity.x, 0, entity.y);
     model.rotation.y = -entity.angle;
     model.visible = visibleAt(entity.x, entity.y);
+    if (pose.detectBar) {
+        const showGauge = entity.detect > 0 && entity.state !== 'CHASE';
+        pose.detectBar.visible = showGauge;
+        pose.detectBar.rotation.y = entity.angle;
+        if (showGauge) {
+            const width = 16 * entity.detect;
+            pose.detectFill.scale.x = Math.max(width, 0.01);
+            pose.detectFill.position.x = -8 + width / 2;
+            pose.detectFill.material = material(detectGaugeColor(entity.detect));
+        }
+    }
+}
+
+function detectGaugeColor(t) {
+    const step = Math.round(Math.max(0, Math.min(1, t)) * 8) / 8;
+    const mix = (a, b, u) => Math.round(a + (b - a) * u);
+    let g;
+    let b;
+    if (step < 0.5) {
+        const u = step / 0.5;
+        g = mix(255, 165, u);
+        b = mix(50, 0, u);
+    } else {
+        const u = (step - 0.5) / 0.5;
+        g = mix(165, 50, u);
+        b = mix(0, 50, u);
+    }
+    return '#' + [255, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
 }
 
 function createItemModel(type) {
@@ -317,6 +362,161 @@ function drawItem(item) {
     }
 }
 
+function visionMaterial(color, opacity) {
+    const key = color + ':' + opacity;
+    if (!visionMaterials.has(key)) {
+        // 床と壁のFogシェーダは掛けない。視界扇形はFogの外でも見える。
+        visionMaterials.set(key, new THREE.MeshBasicMaterial({
+            color, transparent: true, opacity, depthWrite: false, side: THREE.DoubleSide
+        }));
+    }
+    return visionMaterials.get(key);
+}
+
+function visionSegments(viewAngle) {
+    return Math.max(1, Math.ceil((viewAngle * 2) / VISION_ANGLE_STEP));
+}
+
+function visionReach(x, y, angle, maxDist) {
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const blocked = (t) => isWall(x + cos * t, y + sin * t);
+    let clear = 0;
+    const refine = (lo, hi) => {
+        for (let i = 0; i < 4; i++) {
+            const mid = (lo + hi) / 2;
+            if (blocked(mid)) hi = mid;
+            else lo = mid;
+        }
+        return lo;
+    };
+    for (let t = VISION_RAY_STEP; t < maxDist; t += VISION_RAY_STEP) {
+        if (blocked(t)) return refine(clear, t);
+        clear = t;
+    }
+    if (blocked(maxDist)) return refine(clear, maxDist);
+    return maxDist;
+}
+
+function writeRay(array, index, angle, distance) {
+    array[index * 3] = Math.cos(angle) * distance;
+    array[index * 3 + 1] = 0;
+    array[index * 3 + 2] = Math.sin(angle) * distance;
+}
+
+function createFanGeometry(segments, radius) {
+    const positions = new Float32Array((segments + 2) * 3);
+    const indices = new Uint16Array(segments * 3);
+    for (let i = 0; i < segments; i++) {
+        indices[i * 3] = 0;
+        indices[i * 3 + 1] = i + 1;
+        indices[i * 3 + 2] = i + 2;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), radius);
+    return geometry;
+}
+
+function createRingGeometry(segments, radius) {
+    const arc = segments + 1;
+    const positions = new Float32Array(arc * 2 * 3);
+    const indices = new Uint16Array(segments * 6);
+    for (let i = 0; i < segments; i++) {
+        const outer0 = i;
+        const outer1 = i + 1;
+        const inner0 = arc + i;
+        const inner1 = arc + i + 1;
+        const base = i * 6;
+        indices[base] = outer0;
+        indices[base + 1] = outer1;
+        indices[base + 2] = inner1;
+        indices[base + 3] = outer0;
+        indices[base + 4] = inner1;
+        indices[base + 5] = inner0;
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), radius);
+    return geometry;
+}
+
+function enemyVisionStyle(state) {
+    if (state === 'CHASE') return { color: '#ff3232', opacity: 0.5 };
+    if (state === 'ALERT') return { color: '#ffa500', opacity: 0.4 };
+    return { color: '#ffff32', opacity: 0.4 };
+}
+
+function clearVisionCones() {
+    visionMeshes.forEach(object => object.geometry.dispose());
+    visionMeshes.clear();
+    visions.clear();
+}
+
+function ensureVision(entity, isCamera) {
+    let object = visionMeshes.get(entity);
+    if (object) return object;
+    const segments = visionSegments(entity.viewAngle);
+    const geometry = isCamera
+        ? createRingGeometry(segments, entity.viewDistance)
+        : createFanGeometry(segments, entity.viewDistance);
+    object = new THREE.Mesh(geometry, visionMaterial('#ffff32', 0.4));
+    object.renderOrder = 2;
+    object.userData.segments = segments;
+    visions.add(object);
+    visionMeshes.set(entity, object);
+    return object;
+}
+
+function updateVisionMesh(entity, isCamera) {
+    const visible = isCamera ? entity.state === 'ACTIVE' : entity.state !== 'STUNNED';
+    const existing = visionMeshes.get(entity);
+    if (!visible) {
+        if (existing) existing.visible = false;
+        return;
+    }
+    const object = existing || ensureVision(entity, isCamera);
+    const style = isCamera ? { color: '#ff3232', opacity: 0.35 } : enemyVisionStyle(entity.state);
+    object.material = visionMaterial(style.color, style.opacity);
+    object.visible = true;
+    object.position.set(entity.x, VISION_HEIGHT, entity.y);
+    const positions = object.geometry.getAttribute('position');
+    const array = positions.array;
+    const segments = object.userData.segments;
+    const facing = isCamera ? entity.currentAngle : entity.angle;
+    for (let i = 0; i <= segments; i++) {
+        const angle = facing - entity.viewAngle + (entity.viewAngle * 2) * (i / segments);
+        const reach = visionReach(entity.x, entity.y, angle, entity.viewDistance);
+        if (isCamera) {
+            writeRay(array, i, angle, reach);
+            writeRay(array, segments + 1 + i, angle, Math.min(entity.blindRadius, reach));
+        } else {
+            writeRay(array, i + 1, angle, reach);
+        }
+    }
+    if (!isCamera) {
+        array[0] = 0;
+        array[1] = 0;
+        array[2] = 0;
+    }
+    positions.needsUpdate = true;
+}
+
+function syncVisionCones() {
+    const live = new Set([...enemies, ...cameras]);
+    visionMeshes.forEach((object, entity) => {
+        if (!live.has(entity)) {
+            visions.remove(object);
+            object.geometry.dispose();
+            visionMeshes.delete(entity);
+        }
+    });
+    enemies.forEach(enemy => updateVisionMesh(enemy, false));
+    cameras.forEach(cam => updateVisionMesh(cam, true));
+}
+
 function draw3D() {
     if (gameState === 'START') {
         scene.background = new THREE.Color('#111111');
@@ -355,6 +555,7 @@ function draw3D() {
         object.position.x += uploadTerminal.w / 2;
         object.position.z += uploadTerminal.h / 2;
     }
+    syncVisionCones();
     renderer.render(scene, view);
 }
 
