@@ -69,6 +69,36 @@ function drawWall(x, y, theme, ctx = minimapCtx) {
     }
 }
 
+function minimapInSight(x, y) {
+    return dist(player.x, player.y, x, y) <= player.visibleRadius;
+}
+
+function minimapTouches(x, y, w, h) {
+    const nearestX = Math.max(x, Math.min(player.x, x + w));
+    const nearestY = Math.max(y, Math.min(player.y, y + h));
+    return minimapInSight(nearestX, nearestY);
+}
+
+function minimapFogColor(alpha) {
+    const hex = currentTheme.bgColor.replace("#", "");
+    const value = parseInt(hex, 16);
+    return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+
+function drawMinimapFog(canvas, scale) {
+    // 3DのFogと同じく、半径の60px手前から背景色へ落とす。円の外は背景色のまま。
+    const ctx = minimapCtx;
+    const radius = player.visibleRadius * scale;
+    const inner = Math.max(0, player.visibleRadius - 60) * scale;
+    const gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, inner,
+        canvas.width / 2, canvas.height / 2, radius);
+    gradient.addColorStop(0, minimapFogColor(0));
+    gradient.addColorStop(1, minimapFogColor(1));
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
 function drawMinimap() {
     const canvas = minimapCanvas;
     const ctx = minimapCtx;
@@ -81,12 +111,14 @@ function drawMinimap() {
         return;
     }
 
-    let area = renderer3D.getGroundView();
-    const mapWidth = COLS * TILE_SIZE;
-    const mapHeight = ROWS * TILE_SIZE;
-    if (mapWidth <= area.width && mapHeight <= area.height) {
-        area = { x: 0, y: 0, width: mapWidth, height: mapHeight };
-    }
+    // 視界円が収まるプレイヤー中心の固定範囲。通常の半径180では一辺400。全体表示にはしない。
+    const span = player.visibleRadius * 2 + 40;
+    const area = {
+        x: player.x - span / 2,
+        y: player.y - span / 2,
+        width: span,
+        height: span
+    };
     camera.x = area.x;
     camera.y = area.y;
     const scale = Math.min(canvas.width / area.width, canvas.height / area.height);
@@ -105,6 +137,7 @@ function drawMinimap() {
 
     for (let y = Math.max(0, startRow); y < Math.min(ROWS, endRow); y++) {
         for (let x = Math.max(0, startCol); x < Math.min(COLS, endCol); x++) {
+            if (!minimapTouches(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE)) continue;
             if (map[y][x] === TILE_WALL) {
                 drawWall(x, y, currentTheme);
             } else if (map[y][x] === TILE_DOOR) {
@@ -133,10 +166,12 @@ function drawMinimap() {
         }
     }
 
-    ctx.fillStyle = "#00f";
-    ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
+    if (minimapTouches(goal.x, goal.y, goal.w, goal.h)) {
+        ctx.fillStyle = "#00f";
+        ctx.fillRect(goal.x, goal.y, goal.w, goal.h);
+    }
 
-    if (uploadTerminal) {
+    if (uploadTerminal && minimapTouches(uploadTerminal.x, uploadTerminal.y, uploadTerminal.w, uploadTerminal.h)) {
         ctx.fillStyle = uploadStatus.complete ? "rgba(0, 255, 255, 0.2)" : "rgba(80, 0, 180, 0.2)";
         ctx.fillRect(uploadTerminal.x + 4, uploadTerminal.y + 4, uploadTerminal.w - 8, uploadTerminal.h - 8);
         ctx.strokeStyle = uploadStatus.complete ? "#0ff" : "#c800ff";
@@ -149,7 +184,7 @@ function drawMinimap() {
     }
 
     items.forEach(item => {
-        if (item.active) {
+        if (item.active && minimapInSight(item.x, item.y)) {
             if (item.type === ITEM_KEYCARD) {
                 const angle = Date.now() / 500;
                 const w = 12;
@@ -186,6 +221,7 @@ function drawMinimap() {
     });
 
     cameras.forEach(cam => {
+        if (!minimapInSight(cam.x, cam.y)) return;
         if (cam.state === "DISABLED") {
             ctx.fillStyle = "#333";
             ctx.beginPath();
@@ -241,6 +277,7 @@ function drawMinimap() {
     ctx.stroke();
 
     enemies.forEach(enemy => {
+        if (!minimapInSight(enemy.x, enemy.y)) return;
         if (enemy.state === "STUNNED") {
             ctx.fillStyle = "#555";
             ctx.beginPath();
@@ -349,6 +386,7 @@ function drawMinimap() {
 
     drawMinimapMarkers(ctx, scale);
     ctx.restore();
+    drawMinimapFog(canvas, scale);
 
     drawScreenUI();
 }
@@ -356,6 +394,7 @@ function drawMinimap() {
 function drawMinimapMarkers(ctx, scale) {
     // 小さなマップでも主要な点を約2px以上、輪郭を約1pxで残す。
     function dot(x, y, color, radius = 2) {
+        if (!minimapInSight(x, y)) return;
         ctx.fillStyle = color;
         ctx.strokeStyle = "#fff";
         ctx.lineWidth = 1 / scale;
